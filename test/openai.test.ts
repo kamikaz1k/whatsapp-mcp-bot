@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildInput, compactHistory, extractAnswer, formatReply, MAX_REPLY_CHARS, requestBody } from "../src/openai"
+import { buildInput, compactHistory, extractAnswer, MAX_CAPTION_CHARS, MAX_REPLY_CHARS, replyParts, requestBody } from "../src/openai"
 
 describe("compactHistory", () => {
   it("names senders, marks your own messages and keeps the newest when cut", () => {
@@ -41,7 +41,7 @@ describe("requests", () => {
   })
 })
 
-describe("extractAnswer and formatReply", () => {
+describe("extractAnswer", () => {
   it("joins text and collects images", () => {
     const answer = extractAnswer({
       id: "resp_1",
@@ -54,12 +54,36 @@ describe("extractAnswer and formatReply", () => {
     })
     expect(answer.text).toBe("Here you go")
     expect(answer.images).toEqual([{ base64: "aGk=", format: "webp" }])
-    expect(formatReply("🤖", answer, ["https://x/img/a.webp"])).toBe("🤖 Here you go\n\nhttps://x/img/a.webp")
+  })
+})
+
+describe("replyParts", () => {
+  it("is one text message without images", () => {
+    expect(replyParts("🤖", "Here you go", 0)).toEqual([{ text: "🤖 Here you go" }])
+    expect(replyParts("🤖", "", 0)).toEqual([{ text: "🤖 (no answer)" }])
   })
 
-  it("cuts long answers", () => {
-    const reply = formatReply("🤖", { text: "y".repeat(MAX_REPLY_CHARS + 50), images: [] }, [])
-    expect(reply.length).toBeLessThanOrEqual(MAX_REPLY_CHARS + 4)
-    expect(reply.endsWith("…")).toBe(true)
+  it("puts a short answer on the first photo, and the prefix on the rest", () => {
+    expect(replyParts("🤖", "A cat", 2)).toEqual([
+      { image: 0, caption: "🤖 A cat" },
+      { image: 1, caption: "🤖" },
+    ])
+  })
+
+  it("sends a long answer as text before the photos", () => {
+    const long = "z".repeat(MAX_CAPTION_CHARS + 1)
+    expect(replyParts("🤖", long, 1)).toEqual([{ text: `🤖 ${long}` }, { image: 0, caption: "🤖" }])
+  })
+
+  it("cuts very long answers", () => {
+    const [part] = replyParts("🤖", "y".repeat(MAX_REPLY_CHARS + 50), 0)
+    expect("text" in part! && part.text.length).toBeLessThanOrEqual(MAX_REPLY_CHARS + 4)
+    expect("text" in part! && part.text.endsWith("…")).toBe(true)
+  })
+
+  it("never starts a message with the trigger word", () => {
+    for (const part of replyParts("🤖", "bot answers", 2)) {
+      expect(("text" in part ? part.text : part.caption).startsWith("🤖")).toBe(true)
+    }
   })
 })

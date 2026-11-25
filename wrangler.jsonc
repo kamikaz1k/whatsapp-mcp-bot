@@ -10,7 +10,7 @@
   // The Agents SDK routes workflow callbacks by class name.
   "keep_names": true,
   "secrets": { "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET"] },
-  // Subscriptions and generated images. Created on the first deploy.
+  // Subscriptions, and generated images until they are sent. Created on the first deploy.
   "kv_namespaces": [{ "binding": "BOT_KV" }],
   "durable_objects": {
     "bindings": [{ "name": "ChatAgent", "class_name": "ChatAgent" }],
@@ -23,8 +23,6 @@
     // The whatsapp-mcp deployment and its account id (the path segment after /accounts/).
     "WA_API_URL": "https://whatsapp-mcp.<your-subdomain>.workers.dev",
     "WA_ACCOUNT": "personal",
-    // This Worker's own URL, for image links.
-    "BOT_URL": "https://whatsapp-mcp-bot.<your-subdomain>.workers.dev",
     "OPENAI_MODEL": "gpt-6.1-terra",
     "OWNER_NAME": "Ana",
     // "@you bot …" — the word after the mention.

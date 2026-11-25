@@ -3,8 +3,9 @@
 Answers WhatsApp requests addressed to you, from your own number. It runs on Cloudflare:
 a Worker, one Durable Object per chat ([Agents SDK](https://developers.cloudflare.com/agents/)),
 and a [Workflow](https://developers.cloudflare.com/agents/agent-class/run-workflows/) per reply.
-WhatsApp itself comes from [whatsapp-mcp](https://github.com/felipeadeildo/whatsapp-mcp),
-deployed separately and linked to your phone as a device.
+WhatsApp itself comes from [kamikaz1k/whatsapp-mcp](https://github.com/kamikaz1k/whatsapp-mcp),
+a fork of [whatsapp-mcp](https://github.com/felipeadeildo/whatsapp-mcp) that adds inline photo
+sending, deployed separately and linked to your phone as a device.
 
 ```
 WhatsApp ⇄ whatsapp-mcp (linked device, own Worker)
@@ -18,6 +19,7 @@ WhatsApp ⇄ whatsapp-mcp (linked device, own Worker)
               ▼
         ReplyWorkflow: chat context → OpenAI background response (web search, images)
                        → poll → reply to the message, from your number, starting with 🤖
+                                (generated images sent inline as photos)
                        failure → ❌ reaction instead
 ```
 
@@ -41,8 +43,12 @@ current one finishes. Different chats run in parallel.
   so repeated deliveries are dropped.
 - **Reply:** each Workflow step's result is saved, so a redeploy resumes at the next step. The
   generation runs on OpenAI's side in background mode; only its id is kept, then polled.
-- **Sends are idempotent:** the reply uses `idempotency_key: reply-<message id>`, so a retried
-  step can't post twice; reactions are naturally idempotent.
+- **Sends are idempotent:** each reply message is its own step with
+  `idempotency_key: reply-<message id>-<n>`, so a retried step can't post twice; reactions
+  are naturally idempotent.
+- **Images:** generated images are kept in KV (step results are capped at 1 MiB) and sent as
+  inline photos through the fork's `POST /messages` `image` field. A short answer is the first
+  photo's caption; a long one goes first as text.
 - **Lost callbacks:** every 5 minutes, `sweep` checks running batches against their Workflow
   status, and gives up (❌) on any older than 30 minutes.
 
@@ -56,7 +62,6 @@ All but the webhook and images need `Authorization: Bearer $BOT_SECRET`.
 | `GET /subscriptions` | `{ chats, allowedSenders }` |
 | `PUT /subscriptions` | Replaces them. `chats`: JIDs or phone numbers where others may call the bot. `allowedSenders`: if not empty, only these may |
 | `GET /chats?type=group` | Your chats, to find JIDs |
-| `GET /img/:key` | Generated images (kept 30 days) |
 
 ```bash
 curl -s "$BOT_URL/chats?type=group" -H "Authorization: Bearer $BOT_SECRET" | jq '.chats[] | {jid, name}'
@@ -66,9 +71,9 @@ curl -s -X PUT "$BOT_URL/subscriptions" -H "Authorization: Bearer $BOT_SECRET" \
 
 ## Setup
 
-1. **whatsapp-mcp:** clone and deploy it (Workers Paid, $5/month, keeps it connected all day),
+1. **whatsapp-mcp:** clone the fork and deploy it (Workers Paid, $5/month, keeps it connected all day),
    set its `SECRET`, open `https://whatsapp-mcp.<you>.workers.dev`, and link your phone.
-2. **This Worker:** set `WA_API_URL` and `BOT_URL` in `wrangler.jsonc`, then:
+2. **This Worker:** set `WA_API_URL` in `wrangler.jsonc`, then:
    ```bash
    npm install
    npx wrangler secret put OPENAI_API_KEY

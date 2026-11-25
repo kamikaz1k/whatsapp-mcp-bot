@@ -3,14 +3,15 @@
 //
 //   context → start (OpenAI background response) → wait/poll … → reply → reportComplete
 //
-// The OpenAI generation runs on OpenAI's side; only its id is kept here. Images are
-// written to KV inside the poll step, so only their keys pass through step results.
+// The OpenAI generation runs on OpenAI's side; only its id is kept here. Generated
+// images are written to KV inside the poll step (step results are capped at 1 MiB),
+// then each reply message is its own step, so a retry never posts twice.
 import { NonRetryableError } from "cloudflare:workflows"
 import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep, type DefaultProgress } from "agents/workflows"
 
 import type { ChatAgent, ReplyParams } from "./agent"
 import type { Env } from "./env"
-import { buildInput, compactHistory, extractAnswer, formatReply, openai, OpenAIError, requestBody } from "./openai"
+import { buildInput, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody } from "./openai"
 import { permanent, wa } from "./wa"
 
 const RETRY = {
@@ -18,7 +19,8 @@ const RETRY = {
   timeout: "2 minutes",
 } as const
 
-const IMAGE_TTL_SECONDS = 30 * 24 * 60 * 60
+/** Generated images only need to outlive the workflow that sends them. */
+const IMAGE_TTL_SECONDS = 24 * 60 * 60
 const HISTORY_MESSAGES = 40
 /** Poll schedule: quick at first, then every 15 s, for about 14 minutes in all. */
 const POLLS = 60
@@ -83,12 +85,8 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
         const answer = extractAnswer(response)
         const imageKeys: string[] = []
         for (const [index, image] of answer.images.entries()) {
-          const key = `${responseId}-${index}.${image.format}`
-          const bytes = Uint8Array.from(atob(image.base64), (char) => char.charCodeAt(0))
-          await env.BOT_KV.put(`img:${key}`, bytes, {
-            expirationTtl: IMAGE_TTL_SECONDS,
-            metadata: { contentType: `image/${image.format === "jpg" ? "jpeg" : image.format}` },
-          })
+          const key = `img:${responseId}:${index}`
+          await env.BOT_KV.put(key, image.base64, { expirationTtl: IMAGE_TTL_SECONDS })
           imageKeys.push(key)
         }
         return { done: true, text: answer.text, imageKeys }
@@ -96,21 +94,30 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     }
     if (!result.done) throw new NonRetryableError("OpenAI took too long")
 
-    await step.do("reply", RETRY, async () => {
-      const urls = (result.imageKeys ?? []).map((key) => `${env.BOT_URL.replace(/\/$/, "")}/img/${key}`)
-      const text = formatReply(env.REPLY_PREFIX, { text: result.text ?? "", images: [] }, urls)
-      try {
-        const sent = await wa(env).send({
-          to: chatJid,
-          text,
-          reply_to: last.id,
-          idempotency_key: `reply-${last.id}`,
-        })
-        return sent.id
-      } catch (error) {
-        return nonRetryable(error)
-      }
-    })
+    const imageKeys = result.imageKeys ?? []
+    const parts = replyParts(env.REPLY_PREFIX, result.text ?? "", imageKeys.length)
+    for (const [index, part] of parts.entries()) {
+      await step.do(`reply-${index}`, RETRY, async () => {
+        try {
+          let image: { base64: string } | undefined
+          if ("image" in part) {
+            const base64 = await env.BOT_KV.get(imageKeys[part.image]!)
+            if (!base64) throw new NonRetryableError("generated image expired before it was sent")
+            image = { base64 }
+          }
+          const sent = await wa(env).send({
+            to: chatJid,
+            text: "image" in part ? part.caption : part.text,
+            ...(image ? { image } : {}),
+            reply_to: last.id,
+            idempotency_key: `reply-${last.id}-${index}`,
+          })
+          return sent.id
+        } catch (error) {
+          return nonRetryable(error)
+        }
+      })
+    }
 
     await step.reportComplete({ responseId })
   }

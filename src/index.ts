@@ -4,7 +4,6 @@
 //   GET  /subscriptions     which chats others may call the bot from (Bearer BOT_SECRET)
 //   PUT  /subscriptions     replace them: { chats: [...], allowedSenders: [...] }
 //   GET  /chats             your chats from whatsapp-mcp, to find JIDs (?type=group|direct)
-//   GET  /img/:key          images the bot generated (unguessable keys, 30-day expiry)
 import { getAgentByName } from "agents"
 
 import type { Env } from "./env"
@@ -73,25 +72,12 @@ async function webhook(request: Request, env: Env): Promise<Response> {
   return json(200, { triggered: true, accepted })
 }
 
-async function image(key: string, env: Env): Promise<Response> {
-  if (!/^[A-Za-z0-9_-]+-\d+\.(png|jpeg|jpg|webp)$/.test(key)) return json(404, { error: "not found" })
-  const { value, metadata } = await env.BOT_KV.getWithMetadata<{ contentType?: string }>(`img:${key}`, "arrayBuffer")
-  if (!value) return json(404, { error: "not found" })
-  return new Response(value, {
-    headers: {
-      "Content-Type": metadata?.contentType ?? "image/png",
-      "Cache-Control": "public, max-age=86400, immutable",
-    },
-  })
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
 
     if (path === "/wa/webhook" && request.method === "POST") return webhook(request, env)
-    if (path.startsWith("/img/") && request.method === "GET") return image(path.slice(5), env)
     if (path === "/" && request.method === "GET") return new Response("whatsapp-mcp-bot\n")
 
     if (!authorized(request, env)) return json(401, { error: "unauthorized" })

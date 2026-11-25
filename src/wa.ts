@@ -53,6 +53,8 @@ export function wa(env: WaEnv) {
     send: (body: {
       to: string
       text: string
+      /** A photo sent inline; `text` becomes its caption. */
+      image?: { base64: string }
       reply_to?: string
       mentions?: string[]
       idempotency_key?: string

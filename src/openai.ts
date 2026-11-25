@@ -142,11 +142,29 @@ export function openai(apiKey: string) {
   }
 }
 
-/** The reply text: prefix, answer (cut to fit), then image links. */
-export function formatReply(prefix: string, answer: Answer, imageUrls: readonly string[]): string {
-  let text = answer.text
-  if (text.length > MAX_REPLY_CHARS) text = `${text.slice(0, MAX_REPLY_CHARS).trimEnd()}…`
-  const links = imageUrls.join("\n")
-  const body = [text, links].filter(Boolean).join("\n\n") || "(no answer)"
-  return `${prefix} ${body}`
+/** Longest caption kept on a photo; a longer answer goes in its own text message. */
+export const MAX_CAPTION_CHARS = 1000
+
+/** One message of a reply: text, or a generated image (by index) with its caption. */
+export type ReplyPart = { readonly text: string } | { readonly image: number; readonly caption: string }
+
+function cut(text: string): string {
+  return text.length > MAX_REPLY_CHARS ? `${text.slice(0, MAX_REPLY_CHARS).trimEnd()}…` : text
+}
+
+/**
+ * The messages a reply is sent as. Every one starts with the prefix, so none can
+ * trigger the bot. With images, a short answer is the first photo's caption.
+ */
+export function replyParts(prefix: string, text: string, imageCount: number): ReplyPart[] {
+  const answer = cut(text.trim())
+  if (imageCount === 0) return [{ text: `${prefix} ${answer || "(no answer)"}` }]
+  const parts: ReplyPart[] = []
+  const captioned = answer.length <= MAX_CAPTION_CHARS
+  if (!captioned) parts.push({ text: `${prefix} ${answer}` })
+  for (let image = 0; image < imageCount; image++) {
+    const caption = image === 0 && captioned && answer ? `${prefix} ${answer}` : prefix
+    parts.push({ image, caption })
+  }
+  return parts
 }
