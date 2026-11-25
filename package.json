@@ -1,0 +1,25 @@
+{
+  "name": "whatsapp-mcp-bot",
+  "version": "1.0.0",
+  "description": "Answers WhatsApp requests addressed to you, on Cloudflare (Agents SDK + Workflows) via whatsapp-mcp.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "check": "tsc && vitest run"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "agents": "^0.34.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.10",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.2",
+    "wrangler": "^4.168.0"
+  },
+  "private": true,
+  "type": "module"
+}

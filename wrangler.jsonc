@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "whatsapp-mcp-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // The Agents SDK routes workflow callbacks by class name.
+  "keep_names": true,
+  "secrets": { "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET"] },
+  // Subscriptions and generated images. Created on the first deploy.
+  "kv_namespaces": [{ "binding": "BOT_KV" }],
+  "durable_objects": {
+    "bindings": [{ "name": "ChatAgent", "class_name": "ChatAgent" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatAgent"] }],
+  "workflows": [
+    { "name": "whatsapp-mcp-bot-reply", "binding": "REPLY_WORKFLOW", "class_name": "ReplyWorkflow" },
+  ],
+  "vars": {
+    // The whatsapp-mcp deployment and its account id (the path segment after /accounts/).
+    "WA_API_URL": "https://whatsapp-mcp.REPLACE.workers.dev",
+    "WA_ACCOUNT": "personal",
+    // This Worker's own URL, for image links.
+    "BOT_URL": "https://whatsapp-mcp-bot.REPLACE.workers.dev",
+    "OPENAI_MODEL": "gpt-6.1-terra",
+    "OWNER_NAME": "Ana",
+    // "@you bot …" — the word after the mention.
+    "TRIGGER_WORD": "bot",
+    // Every reply starts with this; messages starting with it never trigger.
+    "REPLY_PREFIX": "🤖",
+    "ACK_EMOJI": "👀",
+    "FAIL_EMOJI": "❌",
+  },
+}
