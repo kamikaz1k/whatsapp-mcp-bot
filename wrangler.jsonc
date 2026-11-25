@@ -21,10 +21,10 @@
   ],
   "vars": {
     // The whatsapp-mcp deployment and its account id (the path segment after /accounts/).
-    "WA_API_URL": "https://whatsapp-mcp.REPLACE.workers.dev",
+    "WA_API_URL": "https://whatsapp-mcp.<your-subdomain>.workers.dev",
     "WA_ACCOUNT": "personal",
     // This Worker's own URL, for image links.
-    "BOT_URL": "https://whatsapp-mcp-bot.REPLACE.workers.dev",
+    "BOT_URL": "https://whatsapp-mcp-bot.<your-subdomain>.workers.dev",
     "OPENAI_MODEL": "gpt-6.1-terra",
     "OWNER_NAME": "Ana",
     // "@you bot …" — the word after the mention.
