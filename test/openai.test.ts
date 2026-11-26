@@ -128,7 +128,7 @@ describe("what reaches OpenAI", () => {
       [{ sender: { jid: "15550002222@s.whatsapp.net", name: null, phone: "+15550002222" }, text: "hi", sent_at: "t" }],
       "Ana",
     )
-    expect(line!.who).toBe(alias("15550002222@s.whatsapp.net"))
+    expect(line!.who).toBe(alias("+15550002222"))
     expect(line!.who).not.toMatch(/\d{6,}/)
   })
 
@@ -142,5 +142,16 @@ describe("what reaches OpenAI", () => {
     const { compactHistory, chatLine } = await import("../src/openai")
     expect(compactHistory([{ text: "oops, secret", deleted: true }], "Ana")).toEqual([])
     expect(chatLine({ text: "oops", deleted: true }, "Ana")).toBeNull()
+  })
+})
+
+describe("alias", () => {
+  it("is the same for one number however it is written", async () => {
+    const { alias, redactMentions, personName } = await import("../src/openai")
+    const a = alias("15550002222@s.whatsapp.net")
+    expect(alias("+1 555 000 2222")).toBe(a)
+    expect(redactMentions("hey @15550002222")).toBe(`hey @${a}`)
+    expect(personName({ jid: "99999@lid", phone: "+15550002222", name: null })).toBe(a)
+    expect(a).toMatch(/^person-[0-9a-z]{6}$/)
   })
 })

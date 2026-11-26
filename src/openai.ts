@@ -34,15 +34,21 @@ interface Named {
  * seeing their phone number or JID.
  */
 export function alias(id: string | null | undefined): string {
-  if (!id) return "someone"
+  // Only the number part counts, so "1555…@s.whatsapp.net", "+1 555…" and a bare
+  // "@1555…" in the text all get the same alias.
+  const key = (id ?? "").split("@")[0]!.replace(/\D/g, "") || (id ?? "")
+  if (!key) return "someone"
   let hash = 0x811c9dc5
-  for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193)
-  return `person-${(hash >>> 0).toString(36).slice(0, 4)}`
+  for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 0x01000193)
+  return `person-${(hash >>> 0).toString(36).padStart(6, "0").slice(-6)}`
 }
 
-/** What the model calls someone: their name, else an alias. Never a number. */
+/**
+ * What the model calls someone: their name, else an alias. Never a number. The phone
+ * comes first: WhatsApp names one person by phone in some chats and by LID in others.
+ */
 export function personName(person: Named | null | undefined): string {
-  return person?.name?.trim() || alias(person?.jid ?? person?.phone)
+  return person?.name?.trim() || alias(person?.phone || person?.jid)
 }
 
 /**
