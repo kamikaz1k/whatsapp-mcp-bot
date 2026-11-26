@@ -53,6 +53,20 @@ describe("detectTrigger", () => {
     expect(trigger?.chat.jid).toBe(group.jid)
   })
 
+  it("answers a reply to one of my messages that starts with the word", () => {
+    const reply = message({ text: "bot what did you mean?", reply_to: "3EB0MINE", reply_to_me: true })
+    expect(detectTrigger(group, reply, subs, options)).toMatchObject({
+      prompt: "what did you mean?",
+      replyTo: "3EB0MINE",
+    })
+  })
+
+  it("ignores a reply to me without the word, or in an unsubscribed chat", () => {
+    expect(detectTrigger(group, message({ text: "haha true", reply_to_me: true }), subs, options)).toBeNull()
+    const other: ChatRef = { jid: "120363000000000009@g.us", name: "Other", type: "group" }
+    expect(detectTrigger(other, message({ text: "bot hi", reply_to_me: true }), subs, options)).toBeNull()
+  })
+
   it("ignores a tag without the word, and the word without a tag in a group", () => {
     expect(detectTrigger(group, message({ text: "@15559990000 hi", mentions_me: true }), subs, options)).toBeNull()
     expect(detectTrigger(group, message({ text: "bot do it", mentions_me: false }), subs, options)).toBeNull()

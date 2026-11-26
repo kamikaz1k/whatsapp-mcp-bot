@@ -3,6 +3,8 @@
 // A message counts when:
 // - someone in a subscribed chat tags you and the text then starts with the trigger
 //   word ("@Ana bot can you…"), or
+// - someone in a subscribed chat replies to one of your messages (the bot's replies
+//   included) and the text starts with the trigger word, or
 // - in a subscribed direct chat, the text starts with the trigger word, or
 // - you send it yourself, in any chat, starting with the trigger word.
 // Replies start with the reply prefix, never the trigger word, so the bot never
@@ -29,6 +31,8 @@ export interface WaMessage {
   readonly kind: string
   readonly text: string | null
   readonly mentions_me: boolean
+  /** The message quotes one of yours. */
+  readonly reply_to_me?: boolean
   readonly reply_to: string | null
   readonly transcript?: string | null
 }
@@ -106,7 +110,7 @@ export function detectTrigger(
     ) {
       return null
     }
-    if (message.mentions_me) {
+    if (message.mentions_me || message.reply_to_me) {
       prompt = afterWord(text.replace(LEADING_MENTIONS, ""), options.word)
     } else if (chat.type === "direct") {
       prompt = afterWord(text, options.word)

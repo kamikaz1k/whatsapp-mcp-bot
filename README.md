@@ -27,6 +27,8 @@ WhatsApp ⇄ whatsapp-mcp (linked device, own Worker)
 
 - Someone in a **subscribed** chat tags you and the text then starts with `bot`:
   `@Ana bot can you summarize the above?`
+- Someone in a **subscribed** chat replies to one of your messages (the bot's included) and
+  the text starts with `bot`. WhatsApp's own reply, not a typed quote.
 - In a **subscribed** direct chat, a message starts with `bot`.
 - **You** send a message starting with `bot`, in any chat.
 
