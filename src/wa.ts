@@ -1,7 +1,8 @@
 // A small client for whatsapp-mcp's REST API (`/accounts/<id>/...`, Bearer SECRET).
 
 export interface WaEnv {
-  readonly WA_API_URL: string
+  /** whatsapp-mcp's URL, needed only without the `WA` service binding. */
+  readonly WA_API_URL?: string
   readonly WA_API_SECRET: string
   readonly WA_ACCOUNT: string
   /** Service binding to whatsapp-mcp. Needed when both run on one account: a Worker can't
@@ -26,7 +27,10 @@ export interface SendResult {
 }
 
 export function wa(env: WaEnv) {
-  const base = `${env.WA_API_URL.replace(/\/$/, "")}/accounts/${env.WA_ACCOUNT}`
+  // Through the binding the host is never resolved, so any one does.
+  const origin = env.WA ? "https://whatsapp-mcp" : env.WA_API_URL?.replace(/\/$/, "")
+  if (!origin) throw new Error("set the WA service binding or the WA_API_URL secret")
+  const base = `${origin}/accounts/${env.WA_ACCOUNT}`
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await (env.WA ? env.WA.fetch.bind(env.WA) : fetch)(base + path, {

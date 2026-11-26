@@ -100,9 +100,11 @@ curl -s "$BOT_URL/usage?by=chat&days=7" -H "Authorization: Bearer $BOT_SECRET" |
 
 1. **whatsapp-mcp:** clone the fork and deploy it (Workers Paid, $5/month, keeps it connected all day),
    set its `SECRET`, open `https://whatsapp-mcp.<you>.workers.dev`, and link your phone.
-2. **This Worker:** set `WA_API_URL` in `wrangler.jsonc`, then:
+2. **This Worker:** it reaches whatsapp-mcp through a service binding to the Worker named
+   `whatsapp-mcp` (change `services` in `wrangler.jsonc` if yours is named differently). Then:
    ```bash
    npm install
+   npx wrangler secret put OWNER_NAME      # your first name, as the bot calls you
    npx wrangler secret put OPENAI_API_KEY
    npx wrangler secret put WA_API_SECRET   # whatsapp-mcp's SECRET
    npx wrangler secret put BOT_SECRET      # openssl rand -hex 32

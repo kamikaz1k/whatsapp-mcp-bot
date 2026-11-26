@@ -9,7 +9,11 @@
   "observability": { "enabled": true },
   // The Agents SDK routes workflow callbacks by class name.
   "keep_names": true,
-  "secrets": { "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET"] },
+  // Per-deployment settings are secrets, so nothing about you lives in this file:
+  // OWNER_NAME is how the bot names you to the model ("Ana").
+  "secrets": {
+    "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET", "OWNER_NAME"],
+  },
   // Subscriptions, and generated images until they are sent. Created on the first deploy.
   "kv_namespaces": [{ "binding": "BOT_KV" }],
   // Token usage per reply (GET /usage). Created on the first deploy.
@@ -21,16 +25,16 @@
   "workflows": [
     { "name": "whatsapp-mcp-bot-reply", "binding": "REPLY_WORKFLOW", "class_name": "ReplyWorkflow" },
   ],
+  // The whatsapp-mcp Worker, by its name on your account. Without this binding, set the
+  // WA_API_URL secret to its URL instead (a Worker on another account).
   "services": [{ "binding": "WA", "service": "whatsapp-mcp" }],
   "vars": {
-    // The whatsapp-mcp deployment and its account id (the path segment after /accounts/).
-    "WA_API_URL": "https://whatsapp-mcp.<your-subdomain>.workers.dev",
+    // The whatsapp-mcp account id (the path segment after /accounts/).
     "WA_ACCOUNT": "personal",
     "OPENAI_MODEL": "gpt-6.1-terra",
     // Optional OpenAI project id (proj_…), sent as OpenAI-Project. Not needed with a key
     // that belongs to one project.
     "OPENAI_PROJECT": "",
-    "OWNER_NAME": "Ana",
     // "@you bot …" — the word after the mention.
     "TRIGGER_WORD": "bot",
     // Every reply starts with this; messages starting with it never trigger.
