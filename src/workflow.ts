@@ -28,6 +28,7 @@ import {
   sha256,
   USAGE_TOOL,
 } from "./openai"
+import { citedUrls } from "./format"
 import { getChatInstructions, setChatInstructions } from "./chat-settings"
 import { historyArgs, readHistory } from "./history"
 import { loadSubscriptions } from "./subscriptions"
@@ -42,6 +43,9 @@ const RETRY = {
 
 /** Generated images only need to outlive the workflow that sends them. */
 const IMAGE_TTL_SECONDS = 24 * 60 * 60
+/** How long an answer's sources stay available to a "sources?" reply. */
+const SOURCES_TTL_SECONDS = 30 * 24 * 60 * 60
+const sourcesKey = (messageId: string) => `sources:${messageId}`
 const HISTORY_MESSAGES = 40
 /** How far up a reply chain the context follows (reply to a reply to …). */
 const QUOTE_DEPTH = 4
@@ -94,8 +98,13 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
           throw error
         }
         // A message deleted for everyone ends the thread too.
-        const line = chatLine(message, env.OWNER_NAME)
+        let line = chatLine(message, env.OWNER_NAME)
         if (!line) break
+        // One of the bot's answers: the sources it cited, which the chat doesn't show.
+        if (message.from_me && line.text.startsWith(env.REPLY_PREFIX)) {
+          const sources = await env.BOT_KV.get<string[]>(sourcesKey(String(message.id)), "json")
+          if (sources?.length) line = { ...line, text: `${line.text}\n[sources of this answer, not shown in the chat: ${sources.join(" ")}]` }
+        }
         lines.unshift(line)
         next = typeof message.reply_to === "string" ? message.reply_to : null
       }
@@ -262,6 +271,7 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
 
     const imageKeys = result.imageKeys ?? []
     const parts = replyParts(env.REPLY_PREFIX, result.text ?? "", imageKeys.length)
+    const sources = citedUrls(result.text ?? "")
     for (const [index, part] of parts.entries()) {
       await step.do(`reply-${index}`, RETRY, async () => {
         try {
@@ -278,6 +288,9 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
             reply_to: last.id,
             idempotency_key: `reply-${last.id}-${index}`,
           })
+          if (sources.length > 0) {
+            await env.BOT_KV.put(sourcesKey(sent.id), JSON.stringify(sources), { expirationTtl: SOURCES_TTL_SECONDS })
+          }
           return sent.id
         } catch (error) {
           return nonRetryable(error)

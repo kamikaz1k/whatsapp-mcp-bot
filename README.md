@@ -43,6 +43,11 @@ text. They go in the system prompt after the fixed rules, so they can't lift the
 yours, the bot never claims to be you), up to 2,000 characters, and reach OpenAI with every
 request in that chat.
 
+**Formatting:** replies are turned into WhatsApp text before sending. Web-search citations
+and `[text](url)` links are removed (WhatsApp has no hyperlinks), `**bold**` and headings
+become `*bold*`, and `utm_` tracking is cut from bare URLs. The removed sources are kept in KV
+for 30 days with the sent message, so replying `bot sources?` to an answer lists them.
+
 Replies start with 🤖 and never trigger it. `TRIGGER_WORD`, `REPLY_PREFIX`, `ACK_EMOJI` and
 `FAIL_EMOJI` are vars in `wrangler.jsonc`.
 
