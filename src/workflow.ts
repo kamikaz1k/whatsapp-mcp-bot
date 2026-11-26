@@ -19,6 +19,7 @@ import {
   extractAnswer,
   type FunctionCall,
   functionCalls,
+  HISTORY_TOOL,
   openai,
   OpenAIError,
   replyParts,
@@ -26,6 +27,7 @@ import {
   sha256,
   USAGE_TOOL,
 } from "./openai"
+import { historyArgs, readHistory } from "./history"
 import { loadSubscriptions } from "./subscriptions"
 import { listed } from "./trigger"
 import { isGroup, prices, recordUsage, usageReport, usageRow } from "./usage"
@@ -65,7 +67,7 @@ interface Polled {
 }
 
 /** Function-call rounds per reply before giving up (each is a new OpenAI response). */
-const TOOL_ROUNDS = 3
+const TOOL_ROUNDS = 5
 
 /** Step names for round 0 stay as they were, so instances started before tools resume. */
 const named = (round: number, name: string) => (round === 0 ? name : `${name}-r${round}`)
@@ -115,9 +117,10 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     const chatType = last.chat.type
     const client = openai(env.OPENAI_API_KEY, { project: env.OPENAI_PROJECT || undefined })
 
-    // Usage stats are the owner's: the tool is only offered when every request is yours.
+    // Usage stats are the owner's: that tool is only offered when every request is yours.
+    // This chat's history is for anyone asking in it.
     const ownerOnly = triggers.every((trigger) => trigger.fromMe)
-    const functions = ownerOnly ? [USAGE_TOOL] : []
+    const functions = ownerOnly ? [HISTORY_TOOL, USAGE_TOOL] : [HISTORY_TOOL]
     const attribution = {
       app: "whatsapp-mcp-bot",
       chatType,
@@ -129,6 +132,17 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     }
 
     const runFunction = async (call: FunctionCall): Promise<string> => {
+      if (call.name === HISTORY_TOOL.name) {
+        const args = historyArgs(call.arguments)
+        if (!args) return JSON.stringify({ error: "arguments are not JSON" })
+        try {
+          return JSON.stringify(await readHistory(wa(env), chatJid, args, env.OWNER_NAME))
+        } catch (error) {
+          // A bad search or time window is the model's to fix; outages retry the step.
+          if (permanent(error)) return JSON.stringify({ error: String(error) })
+          throw error
+        }
+      }
       if (call.name !== USAGE_TOOL.name || !ownerOnly) return JSON.stringify({ error: `unknown function ${call.name}` })
       let args: { days?: unknown; by?: unknown }
       try {

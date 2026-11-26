@@ -72,10 +72,16 @@ export function wa(env: WaEnv) {
         "GET",
         `/messages/${enc(chat)}/${enc(id)}`,
       ),
-    messages: (chat: string, limit: number) =>
+    messages: (chat: string, limit: number, range: { since?: string; until?: string } = {}) =>
       call<{ chat: Record<string, unknown>; messages: Record<string, unknown>[] }>(
         "GET",
-        `/chats/${enc(chat)}/messages?limit=${limit}`,
+        `/chats/${enc(chat)}/messages?${new URLSearchParams({ limit: String(limit), ...range })}`,
+      ),
+    /** Full-text search in one chat, best matches first. */
+    search: (chat: string, q: string, limit: number, range: { since?: string; until?: string } = {}) =>
+      call<{ chat: Record<string, unknown>; messages: Record<string, unknown>[] }>(
+        "GET",
+        `/chats/${enc(chat)}/search?${new URLSearchParams({ q, limit: String(limit), ...range })}`,
       ),
     chats: (query: string) =>
       call<{ chats: Record<string, unknown>[] }>("GET", `/chats${query ? `?${query}` : ""}`),

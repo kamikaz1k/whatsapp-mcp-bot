@@ -133,7 +133,12 @@ npm run types     # after changing wrangler.jsonc
 ## What reaches OpenAI
 
 The last 40 messages of the chat (12k characters at most) and any messages the request
-replies to. People without a WhatsApp name show as `person-xxxx`, `@<number>` mentions as
+replies to. For anything older the model calls `read_chat_history`, which reads further back
+in **the same chat only**: a keyword search (whatsapp-mcp's `GET /chats/:chat/search`, up to
+100 hits) or a page of up to 1,000 messages before a time, about 60k characters a call. It can
+page back as far as whatsapp-mcp's archive goes, five tool rounds per reply. Anyone who may
+call the bot in a chat can ask about that chat's history, including messages from before
+they joined it. People without a WhatsApp name show as `person-xxxx`, `@<number>` mentions as
 `@<name>`, and messages deleted for everyone are left out. No phone numbers or JIDs go in
 the request labels.
 
