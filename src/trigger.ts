@@ -103,6 +103,27 @@ export function detectCommand(message: WaMessage, options: TriggerOptions): Comm
   return command === "subscribe" || command === "unsubscribe" ? command : null
 }
 
+export type PromptCommand =
+  | { readonly action: "set"; readonly text: string }
+  | { readonly action: "show" }
+  | { readonly action: "clear" }
+
+/**
+ * `bot set prompt <text>`, `bot show prompt` (or `bot prompt`), `bot clear prompt`: this
+ * chat's instructions. Only your own messages count. The text keeps its case and lines.
+ */
+export function detectPromptCommand(message: WaMessage, options: TriggerOptions): PromptCommand | null {
+  if (!message.from_me) return null
+  const rest = afterWord((message.text ?? "").trim(), options.word)
+  if (rest === null) return null
+  const set = /^set\s+prompt(?![\p{L}\p{N}_])[\s:]*([\s\S]*)$/iu.exec(rest)
+  if (set) return { action: "set", text: set[1]!.trim() }
+  const command = rest.toLowerCase().replace(/[.!?\s]+$/u, "")
+  if (command === "show prompt" || command === "prompt") return { action: "show" }
+  if (command === "clear prompt") return { action: "clear" }
+  return null
+}
+
 export function detectTrigger(
   chat: ChatRef,
   message: WaMessage,

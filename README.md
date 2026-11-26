@@ -35,6 +35,14 @@ WhatsApp ⇄ whatsapp-mcp (linked device, own Worker)
 **Subscribing:** send `bot subscribe` in a chat to let others there call the bot (✅), and
 `bot unsubscribe` to stop them (🔕). Only your own messages can do this. The API works too.
 
+**Chat instructions:** give a chat its own personality or rules for given situations with
+`bot set prompt <text>` (✅), see them with `bot show prompt`, remove them with
+`bot clear prompt` (🔕). You can also just ask: `bot from now on in this chat, end every
+answer with a haiku`. The bot rewrites them with an owner-only tool and replies with the new
+text. They go in the system prompt after the fixed rules, so they can't lift them (stats stay
+yours, the bot never claims to be you), up to 2,000 characters, and reach OpenAI with every
+request in that chat.
+
 Replies start with 🤖 and never trigger it. `TRIGGER_WORD`, `REPLY_PREFIX`, `ACK_EMOJI` and
 `FAIL_EMOJI` are vars in `wrangler.jsonc`.
 
@@ -68,6 +76,7 @@ All but the webhook and images need `Authorization: Bearer $BOT_SECRET`.
 | `PUT /subscriptions` | Replaces them. `chats`: JIDs or phone numbers where others may call the bot. `allowedSenders`: if not empty, only these may |
 | `POST /subscriptions/chats/:chat` | Subscribes one chat (JID or phone number); `DELETE` unsubscribes it |
 | `GET /chats?type=group` | Your chats, to find JIDs |
+| `GET /chats/:chat/settings` | That chat's `instructions`; `PUT { "instructions": "…" }` sets them, `DELETE` clears them |
 | `GET /usage?days=30&by=day` | Token totals, grouped `by` day, chat, use_case, model, status or chat_type |
 | `GET /usage/recent?limit=50` | The latest replies' usage, one row per OpenAI response |
 

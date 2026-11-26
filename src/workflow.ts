@@ -20,6 +20,7 @@ import {
   type FunctionCall,
   functionCalls,
   HISTORY_TOOL,
+  INSTRUCTIONS_TOOL,
   openai,
   OpenAIError,
   replyParts,
@@ -27,6 +28,7 @@ import {
   sha256,
   USAGE_TOOL,
 } from "./openai"
+import { getChatInstructions, setChatInstructions } from "./chat-settings"
 import { historyArgs, readHistory } from "./history"
 import { loadSubscriptions } from "./subscriptions"
 import { listed } from "./trigger"
@@ -120,7 +122,7 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     // Usage stats are the owner's: that tool is only offered when every request is yours.
     // This chat's history is for anyone asking in it.
     const ownerOnly = triggers.every((trigger) => trigger.fromMe)
-    const functions = ownerOnly ? [HISTORY_TOOL, USAGE_TOOL] : [HISTORY_TOOL]
+    const functions = ownerOnly ? [HISTORY_TOOL, USAGE_TOOL, INSTRUCTIONS_TOOL] : [HISTORY_TOOL]
     const attribution = {
       app: "whatsapp-mcp-bot",
       chatType,
@@ -142,6 +144,16 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
           if (permanent(error)) return JSON.stringify({ error: String(error) })
           throw error
         }
+      }
+      if (call.name === INSTRUCTIONS_TOOL.name && ownerOnly) {
+        let args: { instructions?: unknown }
+        try {
+          args = JSON.parse(call.arguments) as typeof args
+        } catch {
+          return JSON.stringify({ error: "arguments are not JSON" })
+        }
+        const text = typeof args.instructions === "string" ? args.instructions : ""
+        return JSON.stringify(await setChatInstructions(env.DB, chatJid, text, Date.now()))
       }
       if (call.name !== USAGE_TOOL.name || !ownerOnly) return JSON.stringify({ error: `unknown function ${call.name}` })
       let args: { days?: unknown; by?: unknown }
@@ -175,7 +187,12 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
 
     let responseId = await step.do("start", RETRY, async () => {
       try {
-        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, { attribution, functions, howTo: await howTo() })
+        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, {
+          attribution,
+          functions,
+          howTo: await howTo(),
+          chatInstructions: await getChatInstructions(env.DB, chatJid),
+        })
         return (await client.start(body, event.instanceId)).id
       } catch (error) {
         return nonRetryable(error)
@@ -233,6 +250,8 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
             functions,
             previousResponseId: id,
             howTo: await howTo(),
+            // Read after the calls ran, so an update shows in the rest of the reply.
+            chatInstructions: await getChatInstructions(env.DB, chatJid),
           })
           return (await client.start(body, event.instanceId)).id
         } catch (error) {

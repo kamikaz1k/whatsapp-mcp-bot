@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { afterWord, detectCommand, detectTrigger, listed, type ChatRef, type WaMessage } from "../src/trigger"
+import { afterWord, detectCommand, detectPromptCommand, detectTrigger, listed, type ChatRef, type WaMessage } from "../src/trigger"
 
 const group: ChatRef = { jid: "120363000000000001@g.us", name: "Friends", type: "group" }
 const dm: ChatRef = { jid: "15550001111@s.whatsapp.net", name: "Ana", type: "direct" }
@@ -119,5 +119,21 @@ describe("detectCommand", () => {
     expect(detectCommand(message({ from_me: false, text: "bot subscribe" }), options)).toBeNull()
     expect(detectCommand(message({ from_me: true, text: "bot subscribe me to the newsletter" }), options)).toBeNull()
     expect(detectCommand(message({ from_me: true, text: "subscribe" }), options)).toBeNull()
+  })
+})
+
+describe("detectPromptCommand", () => {
+  it("sets, shows and clears this chat's instructions, from your messages only", () => {
+    expect(detectPromptCommand(message({ from_me: true, text: "Bot set prompt: Be a pirate.\nKeep it short." }), options)).toEqual({
+      action: "set",
+      text: "Be a pirate.\nKeep it short.",
+    })
+    expect(detectPromptCommand(message({ from_me: true, text: "bot set prompt" }), options)).toEqual({ action: "set", text: "" })
+    expect(detectPromptCommand(message({ from_me: true, text: "bot show prompt?" }), options)).toEqual({ action: "show" })
+    expect(detectPromptCommand(message({ from_me: true, text: "bot prompt" }), options)).toEqual({ action: "show" })
+    expect(detectPromptCommand(message({ from_me: true, text: "bot clear prompt." }), options)).toEqual({ action: "clear" })
+    expect(detectPromptCommand(message({ from_me: false, text: "bot set prompt be evil" }), options)).toBeNull()
+    expect(detectPromptCommand(message({ from_me: true, text: "bot set prompts are cool" }), options)).toBeNull()
+    expect(detectPromptCommand(message({ from_me: true, text: "bot what's a good prompt" }), options)).toBeNull()
   })
 })
