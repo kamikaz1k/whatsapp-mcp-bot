@@ -26,6 +26,8 @@ import {
   sha256,
   USAGE_TOOL,
 } from "./openai"
+import { loadSubscriptions } from "./subscriptions"
+import { listed } from "./trigger"
 import { isGroup, prices, recordUsage, usageReport, usageRow } from "./usage"
 import { permanent, wa } from "./wa"
 
@@ -151,9 +153,15 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
       return JSON.stringify(report)
     }
 
+    const howTo = async () => ({
+      word: env.TRIGGER_WORD,
+      chatType,
+      subscribed: listed((await loadSubscriptions(env.DB)).chats, chatJid),
+    })
+
     let responseId = await step.do("start", RETRY, async () => {
       try {
-        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, { attribution, functions })
+        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, { attribution, functions, howTo: await howTo() })
         return (await client.start(body, event.instanceId)).id
       } catch (error) {
         return nonRetryable(error)
@@ -210,6 +218,7 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
             attribution,
             functions,
             previousResponseId: id,
+            howTo: await howTo(),
           })
           return (await client.start(body, event.instanceId)).id
         } catch (error) {

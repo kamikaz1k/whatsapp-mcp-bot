@@ -155,3 +155,17 @@ describe("alias", () => {
     expect(a).toMatch(/^person-[0-9a-z]{6}$/)
   })
 })
+
+describe("howToUse", () => {
+  it("explains the tag, the word, replies and whether this chat is on", async () => {
+    const { howToUse, instructions } = await import("../src/openai")
+    const text = howToUse("Ana", { word: "bot", chatType: "group", subscribed: true })
+    expect(text).toContain('"@Ana bot summarize the last hour"')
+    expect(text).toContain("@ menu")
+    expect(text).toContain("WhatsApp's reply")
+    expect(text).toContain("it is on for others")
+    expect(text).toContain('"bot subscribe"')
+    expect(howToUse("Ana", { word: "bot", chatType: "direct", subscribed: false })).toContain("off for the other person")
+    expect(instructions("Ana")).not.toContain("How people use you")
+  })
+})
