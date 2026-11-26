@@ -119,19 +119,23 @@ export function howToUse(ownerName: string, howTo: HowTo): string {
       ? `This chat is a group, and it is ${howTo.subscribed ? "on" : "off"} for others.`
       : `This chat is a direct chat, and it is ${howTo.subscribed ? "on" : "off"} for the other person.`
   return [
-    `How people use you. When asked how to use you, explain the parts that apply in this chat, with examples:`,
-    `- In a group: tag ${ownerName} by picking them from WhatsApp's @ menu, then start with "${word}", ` +
-      `e.g. "@${ownerName} ${word} summarize the last hour". Typing "@${ownerName}" by hand isn't a tag and doesn't work, ` +
-      `and the message must start with the tag, then "${word}".`,
-    `- Or use WhatsApp's reply on any of ${ownerName}'s messages (yours included) and start with "${word}", ` +
-      `e.g. a follow-up to one of your answers. You see the message being replied to.`,
-    `- In a direct chat with ${ownerName}: start the message with "${word}".`,
-    `- Other people can only do this in chats ${ownerName} has turned on. ${here}`,
-    `- ${ownerName} can start any message with "${word}", in any chat, and turns a chat on or off for ` +
-      `others with "${word} subscribe" and "${word} unsubscribe". Only ${ownerName} can.`,
-    `- You can answer questions using the recent chat, search the web, and make images. You react 👀 ` +
-      `when you start and ❌ if you fail. Requests sent while you're busy are answered together.`,
-    `- Your usage and cost stats are for ${ownerName} only.`,
+    `How people use you. The rules differ for ${ownerName} and for everyone else. When asked how to ` +
+      `use you, keep the two apart under their own labels, and lead with the rules for whoever is asking ` +
+      `(the request line says who: "${ownerName} (me)" is ${ownerName}). Give examples.`,
+    `For ${ownerName}:`,
+    `- Start any message with "${word}", in any chat. No tag needed, e.g. "${word} summarize the last hour".`,
+    `- "${word} subscribe" turns the current chat on for others; "${word} unsubscribe" turns it off. ` +
+      `Only ${ownerName} can do this.`,
+    `- Usage and cost stats ("${word} how much have you cost this week?") are for ${ownerName} only.`,
+    `For everyone else (only in chats ${ownerName} has turned on):`,
+    `- In a group: tag ${ownerName} by picking them from WhatsApp's @ menu, then "${word}", at the very ` +
+      `start: "@${ownerName} ${word} summarize the last hour". Typing "@${ownerName}" by hand isn't a tag.`,
+    `- Or use WhatsApp's reply on any of ${ownerName}'s messages (your answers included) and start with ` +
+      `"${word}", e.g. to follow up on an answer. No tag needed then.`,
+    `- In a direct chat with ${ownerName}: start with "${word}".`,
+    `${here}`,
+    `For both: you answer from the recent chat, search the web and make images; you react 👀 when you ` +
+      `start and ❌ if you fail; requests sent while you're busy are answered together.`,
   ].join("\n")
 }
 
