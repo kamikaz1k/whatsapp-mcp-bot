@@ -4,6 +4,9 @@ export interface WaEnv {
   readonly WA_API_URL: string
   readonly WA_API_SECRET: string
   readonly WA_ACCOUNT: string
+  /** Service binding to whatsapp-mcp. Needed when both run on one account: a Worker can't
+   * fetch another Worker of the same account through its workers.dev URL (it gets a 404). */
+  readonly WA?: Fetcher
 }
 
 export class WaError extends Error {
@@ -26,7 +29,7 @@ export function wa(env: WaEnv) {
   const base = `${env.WA_API_URL.replace(/\/$/, "")}/accounts/${env.WA_ACCOUNT}`
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const response = await fetch(base + path, {
+    const response = await (env.WA ? env.WA.fetch.bind(env.WA) : fetch)(base + path, {
       method,
       headers: {
         Authorization: `Bearer ${env.WA_API_SECRET}`,

@@ -19,6 +19,7 @@
   "workflows": [
     { "name": "whatsapp-mcp-bot-reply", "binding": "REPLY_WORKFLOW", "class_name": "ReplyWorkflow" },
   ],
+  "services": [{ "binding": "WA", "service": "whatsapp-mcp" }],
   "vars": {
     // The whatsapp-mcp deployment and its account id (the path segment after /accounts/).
     "WA_API_URL": "https://whatsapp-mcp.<your-subdomain>.workers.dev",
