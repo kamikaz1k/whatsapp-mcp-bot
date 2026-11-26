@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildInput, compactHistory, extractAnswer, MAX_CAPTION_CHARS, MAX_REPLY_CHARS, replyParts, requestBody } from "../src/openai"
+import { buildInput, chatLine, compactHistory, extractAnswer, MAX_CAPTION_CHARS, MAX_REPLY_CHARS, replyParts, requestBody } from "../src/openai"
 
 describe("compactHistory", () => {
   it("names senders, marks your own messages and keeps the newest when cut", () => {
@@ -85,5 +85,38 @@ describe("replyParts", () => {
     for (const part of replyParts("🤖", "bot answers", 2)) {
       expect(("text" in part ? part.text : part.caption).startsWith("🤖")).toBe(true)
     }
+  })
+})
+
+describe("buildInput with a reply thread", () => {
+  const trigger = {
+    id: "3EB0ASK",
+    chat: { jid: "g@g.us", name: "Friends", type: "group" },
+    sender: { jid: "1@s.whatsapp.net", name: "Ben", phone: "1" },
+    fromMe: false,
+    sentAt: "2026-11-25T10:00:00.000Z",
+    prompt: "what did you mean?",
+    replyTo: "3EB0BOT",
+  }
+
+  it("shows the quoted messages under the request, oldest first", () => {
+    const thread = [
+      chatLine({ from_me: true, text: "bot best pizza in Toronto?", sent_at: "t1" }, "Ana"),
+      chatLine({ from_me: true, text: "🤖 Try Pizzeria Libretto.", sent_at: "t2" }, "Ana"),
+    ]
+    const input = buildInput("Friends", [], [trigger], "Ana", { "3EB0ASK": thread })
+    expect(input).toContain(
+      "- Ben: what did you mean?\n  in reply to:\n    [t1] Ana (me): bot best pizza in Toronto?\n    [t2] Ana (me): 🤖 Try Pizzeria Libretto.",
+    )
+  })
+
+  it("cuts a long quoted message", () => {
+    expect(chatLine({ text: "x".repeat(5000) }, "Ana").text).toHaveLength(2001)
+  })
+})
+
+describe("replyParts prefix", () => {
+  it("drops a prefix the model copied", () => {
+    expect(replyParts("🤖", "🤖 🤖 hi", 0)).toEqual([{ text: "🤖 hi" }])
   })
 })

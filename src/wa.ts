@@ -62,6 +62,11 @@ export function wa(env: WaEnv) {
       mentions?: string[]
       idempotency_key?: string
     }) => call<SendResult>("POST", "/messages", body),
+    message: (chat: string, id: string) =>
+      call<{ chat: Record<string, unknown>; message: Record<string, unknown> }>(
+        "GET",
+        `/messages/${enc(chat)}/${enc(id)}`,
+      ),
     messages: (chat: string, limit: number) =>
       call<{ chat: Record<string, unknown>; messages: Record<string, unknown>[] }>(
         "GET",

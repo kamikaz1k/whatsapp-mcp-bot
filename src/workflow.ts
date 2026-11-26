@@ -11,7 +11,7 @@ import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep, type De
 
 import type { ChatAgent, ReplyParams } from "./agent"
 import type { Env } from "./env"
-import { buildInput, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody, sha256 } from "./openai"
+import { buildInput, chatLine, type ChatLine, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody, sha256 } from "./openai"
 import { recordUsage, usageRow } from "./usage"
 import { permanent, wa } from "./wa"
 
@@ -23,6 +23,8 @@ const RETRY = {
 /** Generated images only need to outlive the workflow that sends them. */
 const IMAGE_TTL_SECONDS = 24 * 60 * 60
 const HISTORY_MESSAGES = 40
+/** How far up a reply chain the context follows (reply to a reply to …). */
+const QUOTE_DEPTH = 4
 /** Poll schedule: quick at first, then every 15 s, for about 14 minutes in all. */
 const POLLS = 60
 
@@ -50,11 +52,34 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     const env = this.env
     const last = triggers[triggers.length - 1]!
 
+    // The messages a reply quotes, oldest first. A quoted message the archive doesn't
+    // have (older than the history sync) ends the chain; it never fails the reply.
+    const thread = async (chat: string, id: string): Promise<ChatLine[]> => {
+      const lines: ChatLine[] = []
+      let next: string | null = id
+      for (let depth = 0; next && depth < QUOTE_DEPTH; depth++) {
+        let message: Record<string, unknown>
+        try {
+          message = (await wa(env).message(chat, next)).message
+        } catch (error) {
+          if (permanent(error)) break
+          throw error
+        }
+        lines.unshift(chatLine(message, env.OWNER_NAME))
+        next = typeof message.reply_to === "string" ? message.reply_to : null
+      }
+      return lines
+    }
+
     const input = await step.do("context", RETRY, async () => {
       try {
         const { messages } = await wa(env).messages(chatJid, HISTORY_MESSAGES)
         await wa(env).typing(chatJid).catch(() => {})
-        return buildInput(chatName, compactHistory(messages, env.OWNER_NAME), triggers, env.OWNER_NAME)
+        const quoted: Record<string, ChatLine[]> = {}
+        for (const trigger of triggers) {
+          if (trigger.replyTo) quoted[trigger.id] = await thread(chatJid, trigger.replyTo)
+        }
+        return buildInput(chatName, compactHistory(messages, env.OWNER_NAME), triggers, env.OWNER_NAME, quoted)
       } catch (error) {
         return nonRetryable(error)
       }
