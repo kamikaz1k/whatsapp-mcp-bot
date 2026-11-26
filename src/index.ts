@@ -4,10 +4,13 @@
 //   GET  /subscriptions     which chats others may call the bot from (Bearer BOT_SECRET)
 //   PUT  /subscriptions     replace them: { chats: [...], allowedSenders: [...] }
 //   GET  /chats             your chats from whatsapp-mcp, to find JIDs (?type=group|direct)
+//   GET  /usage             token totals: ?days=30&by=day|chat|use_case|model|status|chat_type
+//   GET  /usage/recent      the latest replies' usage, ?limit=50
 import { getAgentByName } from "agents"
 
 import type { Env } from "./env"
 import { detectTrigger, type ChatRef, type Subscriptions, type WaMessage } from "./trigger"
+import { isGroup, recentUsage, usageReport } from "./usage"
 import { wa } from "./wa"
 import { verifyWebhook } from "./webhook"
 
@@ -16,6 +19,10 @@ export { ReplyWorkflow } from "./workflow"
 
 const SUBSCRIPTIONS_KEY = "config:subscriptions"
 const EMPTY: Subscriptions = { chats: [], allowedSenders: [] }
+
+function clamp(value: number, min: number, max: number): number {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : min
+}
 
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status })
@@ -93,6 +100,15 @@ export default {
     }
     if (path === "/chats" && request.method === "GET") {
       return json(200, await wa(env).chats(url.searchParams.toString()))
+    }
+    if (path === "/usage" && request.method === "GET") {
+      const days = clamp(Number(url.searchParams.get("days") ?? 30), 1, 3650)
+      const by = url.searchParams.get("by") ?? "day"
+      if (!isGroup(by)) return json(400, { error: "by: day, chat, use_case, model, status or chat_type" })
+      return json(200, await usageReport(env.DB, days, by, Date.now()))
+    }
+    if (path === "/usage/recent" && request.method === "GET") {
+      return json(200, await recentUsage(env.DB, clamp(Number(url.searchParams.get("limit") ?? 50), 1, 500)))
     }
     return json(404, { error: "not found" })
   },

@@ -11,7 +11,8 @@ import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep, type De
 
 import type { ChatAgent, ReplyParams } from "./agent"
 import type { Env } from "./env"
-import { buildInput, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody } from "./openai"
+import { buildInput, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody, sha256 } from "./openai"
+import { recordUsage, usageRow } from "./usage"
 import { permanent, wa } from "./wa"
 
 const RETRY = {
@@ -59,9 +60,22 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
       }
     })
 
+    const chatType = last.chat.type
+    const client = openai(env.OPENAI_API_KEY, { project: env.OPENAI_PROJECT || undefined })
+
     const responseId = await step.do("start", RETRY, async () => {
       try {
-        return (await openai(env.OPENAI_API_KEY).start(requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME))).id
+        const asker = last.fromMe ? "me" : (last.sender?.jid ?? "someone")
+        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, {
+          app: "whatsapp-mcp-bot",
+          chatType,
+          chatName,
+          requests: triggers.length,
+          workflow: event.instanceId,
+          askerHash: await sha256(asker),
+          chatHash: await sha256(chatJid),
+        })
+        return (await client.start(body, event.instanceId)).id
       } catch (error) {
         return nonRetryable(error)
       }
@@ -73,11 +87,16 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
       result = await step.do(`poll-${attempt}`, RETRY, async (): Promise<Polled> => {
         let response
         try {
-          response = await openai(env.OPENAI_API_KEY).get(responseId)
+          response = await client.get(responseId)
         } catch (error) {
           return nonRetryable(error)
         }
         if (response.status === "queued" || response.status === "in_progress") return { done: false }
+        // Stats must never cost the reply: a failed write is logged, not retried.
+        await recordUsage(
+          env.DB,
+          usageRow(response, { chatJid, chatName, chatType, requests: triggers.length }, Date.now()),
+        ).catch((error) => console.error("usage not recorded", error))
         if (response.status !== "completed") {
           const why = response.error?.message ?? response.incomplete_details?.reason ?? response.status
           throw new NonRetryableError(`OpenAI response ${response.status}: ${why}`)

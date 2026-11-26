@@ -64,11 +64,30 @@ All but the webhook and images need `Authorization: Bearer $BOT_SECRET`.
 | `GET /subscriptions` | `{ chats, allowedSenders }` |
 | `PUT /subscriptions` | Replaces them. `chats`: JIDs or phone numbers where others may call the bot. `allowedSenders`: if not empty, only these may |
 | `GET /chats?type=group` | Your chats, to find JIDs |
+| `GET /usage?days=30&by=day` | Token totals, grouped `by` day, chat, use_case, model, status or chat_type |
+| `GET /usage/recent?limit=50` | The latest replies' usage, one row per OpenAI response |
 
 ```bash
 curl -s "$BOT_URL/chats?type=group" -H "Authorization: Bearer $BOT_SECRET" | jq '.chats[] | {jid, name}'
 curl -s -X PUT "$BOT_URL/subscriptions" -H "Authorization: Bearer $BOT_SECRET" \
   -d '{"chats": ["120363000000000000@g.us", "15551234567"], "allowedSenders": []}'
+```
+
+## Usage tracking
+
+Every OpenAI response is recorded in D1 (`DB`): input, cached, output and reasoning tokens,
+web searches, images, seconds, chat and use case (`image`, `search` or `chat`). OpenAI's
+dashboard can't group by request labels, only by project, API key and model, so for
+per-chat numbers use `/usage`. To split the bot out on OpenAI's side, give it its own API key
+or project; `OPENAI_PROJECT` sends `OpenAI-Project` for a key in several projects.
+
+Each request is still labelled at OpenAI, for its logs: `metadata` (`app`, `use`,
+`chat_type`, `chat`, `requests`, `workflow`), `X-Client-Request-Id: <workflow id>`,
+`safety_identifier` (a sha256 of who asked) and `prompt_cache_key` (per chat, to share its
+cache). No phone numbers or JIDs are sent in those labels.
+
+```bash
+curl -s "$BOT_URL/usage?by=chat&days=7" -H "Authorization: Bearer $BOT_SECRET" | jq
 ```
 
 ## Setup

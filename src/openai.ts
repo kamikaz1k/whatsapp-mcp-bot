@@ -76,9 +76,45 @@ export function buildInput(chatName: string, history: readonly ChatLine[], trigg
     `Request${triggers.length > 1 ? "s" : ""} for you:\n${asks}`
 }
 
-export function requestBody(model: string, input: string, ownerName: string): Record<string, unknown> {
+/**
+ * How a request is labelled at OpenAI. `metadata` shows on the response in OpenAI's logs
+ * (filterable there); `safety_identifier` is a hash of who asked, as OpenAI recommends;
+ * `prompt_cache_key` keeps one chat's requests on the same prompt cache.
+ */
+export interface Attribution {
+  readonly app: string
+  readonly chatType: string
+  readonly chatName: string
+  readonly requests: number
+  readonly workflow: string
+  /** sha256 hex of the asker's JID. */
+  readonly askerHash: string
+  /** sha256 hex of the chat's JID. */
+  readonly chatHash: string
+}
+
+export function requestBody(
+  model: string,
+  input: string,
+  ownerName: string,
+  attribution?: Attribution,
+): Record<string, unknown> {
   return {
     model,
+    ...(attribution
+      ? {
+          metadata: {
+            app: attribution.app,
+            use: "whatsapp-reply",
+            chat_type: attribution.chatType,
+            chat: attribution.chatName.slice(0, 512),
+            requests: String(attribution.requests),
+            workflow: attribution.workflow.slice(0, 512),
+          },
+          safety_identifier: attribution.askerHash.slice(0, 64),
+          prompt_cache_key: `chat-${attribution.chatHash.slice(0, 32)}`,
+        }
+      : {}),
     background: true,
     store: true,
     instructions: instructions(ownerName),
@@ -120,12 +156,25 @@ export function extractAnswer(response: ResponseObject): Answer {
   return { text: parts.join("").trim(), images }
 }
 
-export function openai(apiKey: string) {
-  async function call(method: string, url: string, body?: unknown): Promise<ResponseObject> {
+export async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+export interface OpenAIOptions {
+  /** Sent as `OpenAI-Project`, for a key that belongs to more than one project. */
+  readonly project?: string
+}
+
+export function openai(apiKey: string, options: OpenAIOptions = {}) {
+  async function call(method: string, url: string, body?: unknown, requestId?: string): Promise<ResponseObject> {
     const response = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        ...(options.project ? { "OpenAI-Project": options.project } : {}),
+        // Shows in OpenAI's request logs and support lookups next to its own request id.
+        ...(requestId ? { "X-Client-Request-Id": requestId.slice(0, 512) } : {}),
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -137,7 +186,7 @@ export function openai(apiKey: string) {
     return (await response.json()) as ResponseObject
   }
   return {
-    start: (body: Record<string, unknown>) => call("POST", RESPONSES_URL, body),
+    start: (body: Record<string, unknown>, requestId?: string) => call("POST", RESPONSES_URL, body, requestId),
     get: (id: string) => call("GET", `${RESPONSES_URL}/${encodeURIComponent(id)}`),
   }
 }

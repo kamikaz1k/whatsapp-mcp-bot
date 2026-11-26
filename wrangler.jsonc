@@ -12,6 +12,8 @@
   "secrets": { "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET"] },
   // Subscriptions, and generated images until they are sent. Created on the first deploy.
   "kv_namespaces": [{ "binding": "BOT_KV" }],
+  // Token usage per reply (GET /usage). Created on the first deploy.
+  "d1_databases": [{ "binding": "DB", "database_name": "whatsapp-mcp-bot" }],
   "durable_objects": {
     "bindings": [{ "name": "ChatAgent", "class_name": "ChatAgent" }],
   },
@@ -25,6 +27,9 @@
     "WA_API_URL": "https://whatsapp-mcp.<your-subdomain>.workers.dev",
     "WA_ACCOUNT": "personal",
     "OPENAI_MODEL": "gpt-6.1-terra",
+    // Optional OpenAI project id (proj_…), sent as OpenAI-Project. Not needed with a key
+    // that belongs to one project.
+    "OPENAI_PROJECT": "",
     "OWNER_NAME": "Ana",
     // "@you bot …" — the word after the mention.
     "TRIGGER_WORD": "bot",
