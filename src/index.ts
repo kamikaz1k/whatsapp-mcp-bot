@@ -3,13 +3,16 @@
 //   POST /wa/webhook        signed events from whatsapp-mcp → ChatAgent per chat
 //   GET  /subscriptions     which chats others may call the bot from (Bearer BOT_SECRET)
 //   PUT  /subscriptions     replace them: { chats: [...], allowedSenders: [...] }
+//   POST /subscriptions/chats/:chat    add one chat; DELETE removes it
+// In WhatsApp, you can also send "bot subscribe" or "bot unsubscribe" in a chat.
 //   GET  /chats             your chats from whatsapp-mcp, to find JIDs (?type=group|direct)
 //   GET  /usage             token totals: ?days=30&by=day|chat|use_case|model|status|chat_type
 //   GET  /usage/recent      the latest replies' usage, ?limit=50
 import { getAgentByName } from "agents"
 
 import type { Env } from "./env"
-import { detectTrigger, type ChatRef, type Subscriptions, type WaMessage } from "./trigger"
+import { changeSubscription, loadSubscriptions, saveSubscriptions } from "./subscriptions"
+import { detectCommand, detectTrigger, type ChatRef, type Subscriptions, type WaMessage } from "./trigger"
 import { isGroup, prices, recentUsage, usageReport } from "./usage"
 import { wa } from "./wa"
 import { verifyWebhook } from "./webhook"
@@ -17,8 +20,6 @@ import { verifyWebhook } from "./webhook"
 export { ChatAgent } from "./agent"
 export { ReplyWorkflow } from "./workflow"
 
-const SUBSCRIPTIONS_KEY = "config:subscriptions"
-const EMPTY: Subscriptions = { chats: [], allowedSenders: [] }
 
 function clamp(value: number, min: number, max: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : min
@@ -35,14 +36,6 @@ function authorized(request: Request, env: Env): boolean {
   let diff = 0
   for (let i = 0; i < header.length; i++) diff |= header.charCodeAt(i) ^ expected.charCodeAt(i)
   return diff === 0
-}
-
-export async function loadSubscriptions(env: Env): Promise<Subscriptions> {
-  const stored = await env.BOT_KV.get<Subscriptions>(SUBSCRIPTIONS_KEY, "json")
-  return {
-    chats: stored?.chats ?? EMPTY.chats,
-    allowedSenders: stored?.allowedSenders ?? EMPTY.allowedSenders,
-  }
 }
 
 function parseSubscriptions(body: unknown): Subscriptions | null {
@@ -67,7 +60,17 @@ async function webhook(request: Request, env: Env): Promise<Response> {
   const { chat, message } = event.data
   if (!chat || !message) return json(200, { ignored: "no message" })
 
-  const trigger = detectTrigger(chat, message, await loadSubscriptions(env), {
+  const command = detectCommand(message, { word: env.TRIGGER_WORD, replyPrefix: env.REPLY_PREFIX })
+  if (command) {
+    await changeSubscription(env.DB, chat.jid, command, Date.now())
+    // A failed reaction doesn't undo the change, so it's not retried.
+    await wa(env)
+      .react(chat.jid, message.id, command === "subscribe" ? env.SUBSCRIBED_EMOJI : env.UNSUBSCRIBED_EMOJI)
+      .catch((error) => console.error("reaction failed", error))
+    return json(200, { command, chat: chat.jid })
+  }
+
+  const trigger = detectTrigger(chat, message, await loadSubscriptions(env.DB), {
     word: env.TRIGGER_WORD,
     replyPrefix: env.REPLY_PREFIX,
   })
@@ -90,13 +93,18 @@ export default {
     if (!authorized(request, env)) return json(401, { error: "unauthorized" })
 
     if (path === "/subscriptions") {
-      if (request.method === "GET") return json(200, await loadSubscriptions(env))
+      if (request.method === "GET") return json(200, await loadSubscriptions(env.DB))
       if (request.method === "PUT") {
         const parsed = parseSubscriptions(await request.json().catch(() => null))
         if (!parsed) return json(400, { error: "expected { chats: string[], allowedSenders?: string[] }" })
-        await env.BOT_KV.put(SUBSCRIPTIONS_KEY, JSON.stringify(parsed))
-        return json(200, parsed)
+        await saveSubscriptions(env.DB, parsed, Date.now())
+        return json(200, await loadSubscriptions(env.DB))
       }
+    }
+    const one = /^\/subscriptions\/chats\/([^/]{1,200})$/.exec(path)
+    if (one && (request.method === "POST" || request.method === "DELETE")) {
+      const chat = decodeURIComponent(one[1]!)
+      return json(200, await changeSubscription(env.DB, chat, request.method === "POST" ? "subscribe" : "unsubscribe", Date.now()))
     }
     if (path === "/chats" && request.method === "GET") {
       return json(200, await wa(env).chats(url.searchParams.toString()))

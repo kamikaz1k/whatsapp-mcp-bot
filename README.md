@@ -32,6 +32,9 @@ WhatsApp ⇄ whatsapp-mcp (linked device, own Worker)
 - In a **subscribed** direct chat, a message starts with `bot`.
 - **You** send a message starting with `bot`, in any chat.
 
+**Subscribing:** send `bot subscribe` in a chat to let others there call the bot (✅), and
+`bot unsubscribe` to stop them (🔕). Only your own messages can do this. The API works too.
+
 Replies start with 🤖 and never trigger it. `TRIGGER_WORD`, `REPLY_PREFIX`, `ACK_EMOJI` and
 `FAIL_EMOJI` are vars in `wrangler.jsonc`.
 
@@ -63,6 +66,7 @@ All but the webhook and images need `Authorization: Bearer $BOT_SECRET`.
 | `POST /wa/webhook` | Events from whatsapp-mcp (Standard Webhooks signature) |
 | `GET /subscriptions` | `{ chats, allowedSenders }` |
 | `PUT /subscriptions` | Replaces them. `chats`: JIDs or phone numbers where others may call the bot. `allowedSenders`: if not empty, only these may |
+| `POST /subscriptions/chats/:chat` | Subscribes one chat (JID or phone number); `DELETE` unsubscribes it |
 | `GET /chats?type=group` | Your chats, to find JIDs |
 | `GET /usage?days=30&by=day` | Token totals, grouped `by` day, chat, use_case, model, status or chat_type |
 | `GET /usage/recent?limit=50` | The latest replies' usage, one row per OpenAI response |

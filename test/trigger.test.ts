@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { afterWord, detectTrigger, listed, type ChatRef, type WaMessage } from "../src/trigger"
+import { afterWord, detectCommand, detectTrigger, listed, type ChatRef, type WaMessage } from "../src/trigger"
 
 const group: ChatRef = { jid: "120363000000000001@g.us", name: "Friends", type: "group" }
 const dm: ChatRef = { jid: "15550001111@s.whatsapp.net", name: "Ana", type: "direct" }
@@ -107,5 +107,17 @@ describe("detectTrigger", () => {
   it("uses a voice note's transcript when there's no text", () => {
     const trigger = detectTrigger(dm, message({ kind: "voice", text: null, transcript: "Bot, remind me" }), subs, options)
     expect(trigger?.prompt).toBe("remind me")
+  })
+})
+
+describe("detectCommand", () => {
+  it("knows bot subscribe and bot unsubscribe from me", () => {
+    expect(detectCommand(message({ from_me: true, text: "bot subscribe" }), options)).toBe("subscribe")
+    expect(detectCommand(message({ from_me: true, text: "Bot, Unsubscribe!" }), options)).toBe("unsubscribe")
+  })
+  it("ignores others, and anything longer", () => {
+    expect(detectCommand(message({ from_me: false, text: "bot subscribe" }), options)).toBeNull()
+    expect(detectCommand(message({ from_me: true, text: "bot subscribe me to the newsletter" }), options)).toBeNull()
+    expect(detectCommand(message({ from_me: true, text: "subscribe" }), options)).toBeNull()
   })
 })

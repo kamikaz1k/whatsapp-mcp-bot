@@ -90,6 +90,19 @@ export function afterWord(text: string, word: string): string | null {
   return text.slice(match[0].length).trim()
 }
 
+export type Command = "subscribe" | "unsubscribe"
+
+/**
+ * `bot subscribe` / `bot unsubscribe`, sent by you in a chat: lets others in that chat
+ * call the bot, or stops them. Only your own messages count.
+ */
+export function detectCommand(message: WaMessage, options: TriggerOptions): Command | null {
+  if (!message.from_me) return null
+  const rest = afterWord((message.text ?? "").trim(), options.word)
+  const command = rest?.toLowerCase().replace(/[.!\s]+$/u, "")
+  return command === "subscribe" || command === "unsubscribe" ? command : null
+}
+
 export function detectTrigger(
   chat: ChatRef,
   message: WaMessage,

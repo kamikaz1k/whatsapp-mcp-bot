@@ -14,9 +14,9 @@
   "secrets": {
     "required": ["OPENAI_API_KEY", "WA_API_SECRET", "WA_WEBHOOK_SECRET", "BOT_SECRET", "OWNER_NAME"],
   },
-  // Subscriptions, and generated images until they are sent. Created on the first deploy.
+  // Generated images until they are sent. Created on the first deploy.
   "kv_namespaces": [{ "binding": "BOT_KV" }],
-  // Token usage per reply (GET /usage). Created on the first deploy.
+  // Subscriptions and token usage per reply (GET /usage). Created on the first deploy.
   "d1_databases": [{ "binding": "DB", "database_name": "whatsapp-mcp-bot" }],
   "durable_objects": {
     "bindings": [{ "name": "ChatAgent", "class_name": "ChatAgent" }],
@@ -41,5 +41,8 @@
     "REPLY_PREFIX": "🤖",
     "ACK_EMOJI": "👀",
     "FAIL_EMOJI": "❌",
+    // Reactions on your "bot subscribe" / "bot unsubscribe" once done.
+    "SUBSCRIBED_EMOJI": "✅",
+    "UNSUBSCRIBED_EMOJI": "🔕",
   },
 }
