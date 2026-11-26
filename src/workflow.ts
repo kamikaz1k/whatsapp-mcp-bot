@@ -11,8 +11,22 @@ import { AgentWorkflow, type AgentWorkflowEvent, type AgentWorkflowStep, type De
 
 import type { ChatAgent, ReplyParams } from "./agent"
 import type { Env } from "./env"
-import { buildInput, chatLine, type ChatLine, compactHistory, extractAnswer, openai, OpenAIError, replyParts, requestBody, sha256 } from "./openai"
-import { recordUsage, usageRow } from "./usage"
+import {
+  buildInput,
+  chatLine,
+  type ChatLine,
+  compactHistory,
+  extractAnswer,
+  type FunctionCall,
+  functionCalls,
+  openai,
+  OpenAIError,
+  replyParts,
+  requestBody,
+  sha256,
+  USAGE_TOOL,
+} from "./openai"
+import { isGroup, prices, recordUsage, usageReport, usageRow } from "./usage"
 import { permanent, wa } from "./wa"
 
 const RETRY = {
@@ -44,7 +58,15 @@ interface Polled {
   readonly done: boolean
   readonly text?: string
   readonly imageKeys?: readonly string[]
+  /** Function calls to run before the answer can finish. */
+  readonly calls?: readonly FunctionCall[]
 }
+
+/** Function-call rounds per reply before giving up (each is a new OpenAI response). */
+const TOOL_ROUNDS = 3
+
+/** Step names for round 0 stay as they were, so instances started before tools resume. */
+const named = (round: number, name: string) => (round === 0 ? name : `${name}-r${round}`)
 
 export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, DefaultProgress, Env> {
   async run(event: AgentWorkflowEvent<ReplyParams>, step: AgentWorkflowStep): Promise<void> {
@@ -65,7 +87,10 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
           if (permanent(error)) break
           throw error
         }
-        lines.unshift(chatLine(message, env.OWNER_NAME))
+        // A message deleted for everyone ends the thread too.
+        const line = chatLine(message, env.OWNER_NAME)
+        if (!line) break
+        lines.unshift(line)
         next = typeof message.reply_to === "string" ? message.reply_to : null
       }
       return lines
@@ -88,18 +113,47 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     const chatType = last.chat.type
     const client = openai(env.OPENAI_API_KEY, { project: env.OPENAI_PROJECT || undefined })
 
-    const responseId = await step.do("start", RETRY, async () => {
+    // Usage stats are the owner's: the tool is only offered when every request is yours.
+    const ownerOnly = triggers.every((trigger) => trigger.fromMe)
+    const functions = ownerOnly ? [USAGE_TOOL] : []
+    const attribution = {
+      app: "whatsapp-mcp-bot",
+      chatType,
+      chatName,
+      requests: triggers.length,
+      workflow: event.instanceId,
+      askerHash: await sha256(last.fromMe ? "me" : (last.sender?.jid ?? "someone")),
+      chatHash: await sha256(chatJid),
+    }
+
+    const runFunction = async (call: FunctionCall): Promise<string> => {
+      if (call.name !== USAGE_TOOL.name || !ownerOnly) return JSON.stringify({ error: `unknown function ${call.name}` })
+      let args: { days?: unknown; by?: unknown }
       try {
-        const asker = last.fromMe ? "me" : (last.sender?.jid ?? "someone")
-        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, {
-          app: "whatsapp-mcp-bot",
-          chatType,
-          chatName,
-          requests: triggers.length,
-          workflow: event.instanceId,
-          askerHash: await sha256(asker),
-          chatHash: await sha256(chatJid),
-        })
+        args = JSON.parse(call.arguments) as typeof args
+      } catch {
+        return JSON.stringify({ error: "arguments are not JSON" })
+      }
+      const days = Math.min(365, Math.max(1, Math.floor(Number(args.days) || 30)))
+      const by = typeof args.by === "string" && isGroup(args.by) ? args.by : "day"
+      // The answer is posted in this chat: outside your own "message yourself" chat it only
+      // covers this chat, so other chats' names and activity never show up in a group.
+      const me = await wa(env).me()
+      const selfChat = chatJid === me.jid || chatJid === me.lid
+      const report = await usageReport(
+        env.DB,
+        days,
+        by,
+        Date.now(),
+        prices(env as unknown as Record<string, string>),
+        selfChat ? undefined : chatJid,
+      )
+      return JSON.stringify(report)
+    }
+
+    let responseId = await step.do("start", RETRY, async () => {
+      try {
+        const body = requestBody(env.OPENAI_MODEL, input, env.OWNER_NAME, { attribution, functions })
         return (await client.start(body, event.instanceId)).id
       } catch (error) {
         return nonRetryable(error)
@@ -107,36 +161,62 @@ export class ReplyWorkflow extends AgentWorkflow<ChatAgent, ReplyParams, Default
     })
 
     let result: Polled = { done: false }
-    for (let attempt = 0; attempt < POLLS && !result.done; attempt++) {
-      await step.sleep(`wait-${attempt}`, pollDelay(attempt))
-      result = await step.do(`poll-${attempt}`, RETRY, async (): Promise<Polled> => {
-        let response
+    for (let round = 0; ; round++) {
+      result = { done: false }
+      const id = responseId
+      for (let attempt = 0; attempt < POLLS && !result.done; attempt++) {
+        await step.sleep(named(round, `wait-${attempt}`), pollDelay(attempt))
+        result = await step.do(named(round, `poll-${attempt}`), RETRY, async (): Promise<Polled> => {
+          let response
+          try {
+            response = await client.get(id)
+          } catch (error) {
+            return nonRetryable(error)
+          }
+          if (response.status === "queued" || response.status === "in_progress") return { done: false }
+          // Stats must never cost the reply: a failed write is logged, not retried.
+          await recordUsage(
+            env.DB,
+            usageRow(response, { chatJid, chatName, chatType, requests: triggers.length }, Date.now()),
+          ).catch((error) => console.error("usage not recorded", error))
+          if (response.status !== "completed") {
+            const why = response.error?.message ?? response.incomplete_details?.reason ?? response.status
+            throw new NonRetryableError(`OpenAI response ${response.status}: ${why}`)
+          }
+          const calls = functionCalls(response)
+          if (calls.length > 0) return { done: true, calls }
+          const answer = extractAnswer(response)
+          const imageKeys: string[] = []
+          for (const [index, image] of answer.images.entries()) {
+            const key = `img:${id}:${index}`
+            await env.BOT_KV.put(key, image.base64, { expirationTtl: IMAGE_TTL_SECONDS })
+            imageKeys.push(key)
+          }
+          return { done: true, text: answer.text, imageKeys }
+        })
+      }
+      if (!result.done) throw new NonRetryableError("OpenAI took too long")
+      if (!result.calls) break
+      if (round + 1 >= TOOL_ROUNDS) throw new NonRetryableError("too many tool rounds")
+
+      const calls = result.calls
+      responseId = await step.do(named(round + 1, "start"), RETRY, async () => {
         try {
-          response = await client.get(responseId)
+          const outputs = []
+          for (const call of calls) {
+            outputs.push({ type: "function_call_output", call_id: call.call_id, output: await runFunction(call) })
+          }
+          const body = requestBody(env.OPENAI_MODEL, outputs, env.OWNER_NAME, {
+            attribution,
+            functions,
+            previousResponseId: id,
+          })
+          return (await client.start(body, event.instanceId)).id
         } catch (error) {
           return nonRetryable(error)
         }
-        if (response.status === "queued" || response.status === "in_progress") return { done: false }
-        // Stats must never cost the reply: a failed write is logged, not retried.
-        await recordUsage(
-          env.DB,
-          usageRow(response, { chatJid, chatName, chatType, requests: triggers.length }, Date.now()),
-        ).catch((error) => console.error("usage not recorded", error))
-        if (response.status !== "completed") {
-          const why = response.error?.message ?? response.incomplete_details?.reason ?? response.status
-          throw new NonRetryableError(`OpenAI response ${response.status}: ${why}`)
-        }
-        const answer = extractAnswer(response)
-        const imageKeys: string[] = []
-        for (const [index, image] of answer.images.entries()) {
-          const key = `img:${responseId}:${index}`
-          await env.BOT_KV.put(key, image.base64, { expirationTtl: IMAGE_TTL_SECONDS })
-          imageKeys.push(key)
-        }
-        return { done: true, text: answer.text, imageKeys }
       })
     }
-    if (!result.done) throw new NonRetryableError("OpenAI took too long")
 
     const imageKeys = result.imageKeys ?? []
     const parts = replyParts(env.REPLY_PREFIX, result.text ?? "", imageKeys.length)

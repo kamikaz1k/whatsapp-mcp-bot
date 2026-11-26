@@ -10,7 +10,7 @@ import { getAgentByName } from "agents"
 
 import type { Env } from "./env"
 import { detectTrigger, type ChatRef, type Subscriptions, type WaMessage } from "./trigger"
-import { isGroup, recentUsage, usageReport } from "./usage"
+import { isGroup, prices, recentUsage, usageReport } from "./usage"
 import { wa } from "./wa"
 import { verifyWebhook } from "./webhook"
 
@@ -105,10 +105,10 @@ export default {
       const days = clamp(Number(url.searchParams.get("days") ?? 30), 1, 3650)
       const by = url.searchParams.get("by") ?? "day"
       if (!isGroup(by)) return json(400, { error: "by: day, chat, use_case, model, status or chat_type" })
-      return json(200, await usageReport(env.DB, days, by, Date.now()))
+      return json(200, await usageReport(env.DB, days, by, Date.now(), prices(env as unknown as Record<string, string>)))
     }
     if (path === "/usage/recent" && request.method === "GET") {
-      return json(200, await recentUsage(env.DB, clamp(Number(url.searchParams.get("limit") ?? 50), 1, 500)))
+      return json(200, await recentUsage(env.DB, clamp(Number(url.searchParams.get("limit") ?? 50), 1, 500), prices(env as unknown as Record<string, string>)))
     }
     return json(404, { error: "not found" })
   },

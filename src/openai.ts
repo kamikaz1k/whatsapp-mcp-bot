@@ -23,6 +23,41 @@ export interface ChatLine {
   readonly text: string
 }
 
+interface Named {
+  readonly jid?: string | null
+  readonly name?: string | null
+  readonly phone?: string | null
+}
+
+/**
+ * A stable label for someone with no name, so the model can tell people apart without
+ * seeing their phone number or JID.
+ */
+export function alias(id: string | null | undefined): string {
+  if (!id) return "someone"
+  let hash = 0x811c9dc5
+  for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 0x01000193)
+  return `person-${(hash >>> 0).toString(36).slice(0, 4)}`
+}
+
+/** What the model calls someone: their name, else an alias. Never a number. */
+export function personName(person: Named | null | undefined): string {
+  return person?.name?.trim() || alias(person?.jid ?? person?.phone)
+}
+
+/**
+ * Text as the model sees it: `@<number>` mentions become `@<name>` (or an alias), so
+ * numbers WhatsApp puts in the text don't reach OpenAI.
+ */
+export function redactMentions(text: string, mentions: readonly Named[] = []): string {
+  return text.replace(/@(\d{6,})/g, (_match, digits: string) => {
+    const person = mentions.find(
+      (mention) => mention.jid?.split("@")[0] === digits || mention.phone?.replace(/\D/g, "") === digits,
+    )
+    return `@${person ? personName(person) : alias(digits)}`
+  })
+}
+
 /** The last messages of the chat, oldest first, as short lines (newest kept when cut). */
 export function compactHistory(
   messages: readonly Record<string, unknown>[],
@@ -30,14 +65,16 @@ export function compactHistory(
 ): ChatLine[] {
   const lines: ChatLine[] = []
   for (const message of messages) {
-    const sender = message.sender as { name?: string | null; phone?: string | null } | null
-    const who = message.from_me ? `${ownerName} (me)` : (sender?.name ?? sender?.phone ?? "someone")
+    // Deleted for everyone: the archive keeps it, the people in the chat don't see it.
+    if (message.deleted === true) continue
+    const who = message.from_me ? `${ownerName} (me)` : personName(message.sender as Named | null)
     const body =
       (message.text as string | null) ??
       (message.transcript as string | null) ??
       (message.description as string | null) ??
       `[${String(message.kind ?? "message")}]`
-    lines.push({ at: String(message.sent_at ?? ""), who, text: body.replace(/\s+/g, " ").trim() })
+    const text = redactMentions(body, (message.mentions as Named[] | undefined) ?? [])
+    lines.push({ at: String(message.sent_at ?? ""), who, text: text.replace(/\s+/g, " ").trim() })
   }
   let total = 0
   const kept: ChatLine[] = []
@@ -54,10 +91,11 @@ export function compactHistory(
 const MAX_QUOTED_CHARS = 2000
 
 /** One message as a line, for quoting. */
-export function chatLine(message: Record<string, unknown>, ownerName: string): ChatLine {
+export function chatLine(message: Record<string, unknown>, ownerName: string): ChatLine | null {
   const [line] = compactHistory([message], ownerName)
-  const text = line!.text
-  return { ...line!, text: text.length > MAX_QUOTED_CHARS ? `${text.slice(0, MAX_QUOTED_CHARS)}…` : text }
+  if (!line) return null
+  const text = line.text
+  return { ...line, text: text.length > MAX_QUOTED_CHARS ? `${text.slice(0, MAX_QUOTED_CHARS)}…` : text }
 }
 
 export function instructions(ownerName: string): string {
@@ -91,8 +129,9 @@ export function buildInput(
   const historyText = history.map((line) => `[${line.at}] ${line.who}: ${line.text}`).join("\n")
   const asks = triggers
     .map((trigger) => {
-      const who = trigger.fromMe ? `${ownerName} (me)` : (trigger.sender?.name ?? trigger.sender?.phone ?? "someone")
-      const ask = `- ${who}: ${trigger.prompt || "(no text — look at the recent chat)"}`
+      const who = trigger.fromMe ? `${ownerName} (me)` : personName(trigger.sender)
+      const prompt = redactMentions(trigger.prompt)
+      const ask = `- ${who}: ${prompt || "(no text — look at the recent chat)"}`
       const thread = quoted[trigger.id] ?? []
       if (thread.length === 0) return ask
       const lines = thread.map((line) => `    [${line.at}] ${line.who}: ${line.text}`).join("\n")
@@ -120,14 +159,53 @@ export interface Attribution {
   readonly chatHash: string
 }
 
+/** Function tools the bot runs itself. Only offered when the owner asks. */
+export const USAGE_TOOL = {
+  type: "function",
+  name: "get_usage_stats",
+  description:
+    "This WhatsApp bot's own OpenAI usage, from its records: tokens, web searches, images and " +
+    "an estimated USD cost (list prices; an estimate, not a bill). Returns totals over the last " +
+    "`days` and a breakdown grouped `by` one dimension. Use it when asked about the bot's usage, " +
+    "tokens, spend or cost.",
+  strict: true,
+  parameters: {
+    type: "object",
+    properties: {
+      days: { type: "integer", description: "How many days back, 1 to 365.", minimum: 1, maximum: 365 },
+      by: {
+        type: "string",
+        enum: ["day", "chat", "use_case", "model", "status", "chat_type"],
+        description: "How to break the totals down.",
+      },
+    },
+    required: ["days", "by"],
+    additionalProperties: false,
+  },
+} as const
+
+export interface RequestOptions {
+  readonly attribution?: Attribution
+  /** Extra function tools for this request. */
+  readonly functions?: readonly Record<string, unknown>[]
+  /** Continue this response, with `input` given as items (function call outputs). */
+  readonly previousResponseId?: string
+}
+
 export function requestBody(
   model: string,
-  input: string,
+  input: string | readonly Record<string, unknown>[],
   ownerName: string,
-  attribution?: Attribution,
+  attributionOrOptions?: Attribution | RequestOptions,
 ): Record<string, unknown> {
+  const options: RequestOptions =
+    attributionOrOptions && "app" in attributionOrOptions
+      ? { attribution: attributionOrOptions }
+      : (attributionOrOptions ?? {})
+  const attribution = options.attribution
   return {
     model,
+    ...(options.previousResponseId ? { previous_response_id: options.previousResponseId } : {}),
     ...(attribution
       ? {
           metadata: {
@@ -145,8 +223,8 @@ export function requestBody(
     background: true,
     store: true,
     instructions: instructions(ownerName),
-    input: [{ role: "user", content: input }],
-    tools: [{ type: "web_search" }, { type: "image_generation" }],
+    input: typeof input === "string" ? [{ role: "user", content: input }] : input,
+    tools: [{ type: "web_search" }, { type: "image_generation" }, ...(options.functions ?? [])],
     tool_choice: "auto",
     max_output_tokens: 6000,
   }
@@ -160,6 +238,23 @@ export interface ResponseObject {
   readonly output?: readonly Record<string, unknown>[]
   readonly error?: { message?: string } | null
   readonly incomplete_details?: { reason?: string } | null
+}
+
+export interface FunctionCall {
+  readonly call_id: string
+  readonly name: string
+  readonly arguments: string
+}
+
+/** The function calls a finished response asks this side to run. */
+export function functionCalls(response: ResponseObject): FunctionCall[] {
+  const calls: FunctionCall[] = []
+  for (const item of response.output ?? []) {
+    if (item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string") {
+      calls.push({ call_id: item.call_id, name: item.name, arguments: typeof item.arguments === "string" ? item.arguments : "{}" })
+    }
+  }
+  return calls
 }
 
 export interface Answer {

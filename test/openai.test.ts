@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildInput, chatLine, compactHistory, extractAnswer, MAX_CAPTION_CHARS, MAX_REPLY_CHARS, replyParts, requestBody } from "../src/openai"
+import { alias, buildInput, chatLine, compactHistory, extractAnswer, MAX_CAPTION_CHARS, MAX_REPLY_CHARS, replyParts, requestBody } from "../src/openai"
 
 describe("compactHistory", () => {
   it("names senders, marks your own messages and keeps the newest when cut", () => {
@@ -15,7 +15,7 @@ describe("compactHistory", () => {
     expect(lines.map((line) => `${line.who}: ${line.text}`)).toEqual([
       "Ben: first",
       "Ana (me): second line",
-      "1555: a dog",
+      `${alias("1555")}: a dog`,
     ])
     const many = Array.from({ length: 500 }, (_, i) => ({ sent_at: `t${i}`, from_me: false, sender: { name: "A" }, text: "x".repeat(100) }))
     const kept = compactHistory(many, "Ana")
@@ -101,8 +101,8 @@ describe("buildInput with a reply thread", () => {
 
   it("shows the quoted messages under the request, oldest first", () => {
     const thread = [
-      chatLine({ from_me: true, text: "bot best pizza in Toronto?", sent_at: "t1" }, "Ana"),
-      chatLine({ from_me: true, text: "🤖 Try Pizzeria Libretto.", sent_at: "t2" }, "Ana"),
+      chatLine({ from_me: true, text: "bot best pizza in Toronto?", sent_at: "t1" }, "Ana")!,
+      chatLine({ from_me: true, text: "🤖 Try Pizzeria Libretto.", sent_at: "t2" }, "Ana")!,
     ]
     const input = buildInput("Friends", [], [trigger], "Ana", { "3EB0ASK": thread })
     expect(input).toContain(
@@ -111,12 +111,36 @@ describe("buildInput with a reply thread", () => {
   })
 
   it("cuts a long quoted message", () => {
-    expect(chatLine({ text: "x".repeat(5000) }, "Ana").text).toHaveLength(2001)
+    expect(chatLine({ text: "x".repeat(5000) }, "Ana")!.text).toHaveLength(2001)
   })
 })
 
 describe("replyParts prefix", () => {
   it("drops a prefix the model copied", () => {
     expect(replyParts("🤖", "🤖 🤖 hi", 0)).toEqual([{ text: "🤖 hi" }])
+  })
+})
+
+describe("what reaches OpenAI", () => {
+  it("names people without a name by alias, never by number", async () => {
+    const { compactHistory, alias } = await import("../src/openai")
+    const [line] = compactHistory(
+      [{ sender: { jid: "15550002222@s.whatsapp.net", name: null, phone: "+15550002222" }, text: "hi", sent_at: "t" }],
+      "Ana",
+    )
+    expect(line!.who).toBe(alias("15550002222@s.whatsapp.net"))
+    expect(line!.who).not.toMatch(/\d{6,}/)
+  })
+
+  it("turns @number mentions into names", async () => {
+    const { redactMentions } = await import("../src/openai")
+    expect(redactMentions("ask @15550003333 and @9999999999", [{ jid: "15550003333@s.whatsapp.net", name: "Ana", phone: null }]))
+      .toMatch(/^ask @Ana and @person-\w+$/)
+  })
+
+  it("leaves out messages deleted for everyone", async () => {
+    const { compactHistory, chatLine } = await import("../src/openai")
+    expect(compactHistory([{ text: "oops, secret", deleted: true }], "Ana")).toEqual([])
+    expect(chatLine({ text: "oops", deleted: true }, "Ana")).toBeNull()
   })
 })

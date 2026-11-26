@@ -88,3 +88,49 @@ describe("requestBody attribution", () => {
     expect(JSON.stringify(body)).not.toContain("@s.whatsapp.net")
   })
 })
+
+describe("cost", () => {
+  it("prices fresh, cached and cache-write input apart, plus tools", async () => {
+    const { cost, prices } = await import("../src/usage")
+    const p = prices({})
+    const row = {
+      input_tokens: 1_000_000,
+      cached_tokens: 400_000,
+      cache_write_tokens: 100_000,
+      output_tokens: 100_000,
+      web_searches: 2,
+      images: 1,
+    }
+    // 0.5M fresh × $1 + 0.4M × $0.05 + 0.1M × $1.25 + 0.1M × $5 + 2 × $0.01 + $0.04
+    expect(cost(row, p)).toBeCloseTo(0.5 + 0.02 + 0.125 + 0.5 + 0.02 + 0.04, 6)
+  })
+
+  it("takes prices from vars, ignoring bad ones", async () => {
+    const { prices } = await import("../src/usage")
+    expect(prices({ PRICE_OUTPUT_PER_M: "8", PRICE_INPUT_PER_M: "abc" })).toMatchObject({ outputPerM: 8, inputPerM: 1 })
+  })
+})
+
+describe("function calls", () => {
+  it("finds the calls a response asks for and continues from it", async () => {
+    const { functionCalls, USAGE_TOOL } = await import("../src/openai")
+    const response = {
+      id: "resp_1",
+      status: "completed",
+      output: [{ type: "function_call", call_id: "call_1", name: "get_usage_stats", arguments: '{"days":7,"by":"chat"}' }],
+    } as unknown as ResponseObject
+    expect(functionCalls(response)).toEqual([{ call_id: "call_1", name: "get_usage_stats", arguments: '{"days":7,"by":"chat"}' }])
+    const body = requestBody("m", [{ type: "function_call_output", call_id: "call_1", output: "{}" }], "Ana", {
+      functions: [USAGE_TOOL],
+      previousResponseId: "resp_1",
+    })
+    expect(body.previous_response_id).toBe("resp_1")
+    expect(body.input).toEqual([{ type: "function_call_output", call_id: "call_1", output: "{}" }])
+    expect((body.tools as { name?: string }[]).map((tool) => tool.name)).toContain("get_usage_stats")
+  })
+
+  it("offers no function tools by default", () => {
+    const body = requestBody("m", "hi", "Ana")
+    expect((body.tools as { type: string }[]).map((tool) => tool.type)).toEqual(["web_search", "image_generation"])
+  })
+})

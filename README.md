@@ -86,6 +86,12 @@ Each request is still labelled at OpenAI, for its logs: `metadata` (`app`, `use`
 `safety_identifier` (a sha256 of who asked) and `prompt_cache_key` (per chat, to share its
 cache). No phone numbers or JIDs are sent in those labels.
 
+Costs are estimates at list prices, set by the `PRICE_*` vars (gpt-6.1-terra's by default:
+$1 / $0.05 cached / $1.25 cache write / $5 output per million tokens, plus about $0.01 per web
+search and $0.04 per image). You can also ask the bot: `bot how much have you cost this week?`.
+It has a `get_usage_stats` tool only when the request is yours, and outside your own
+"message yourself" chat it only reports that chat.
+
 ```bash
 curl -s "$BOT_URL/usage?by=chat&days=7" -H "Authorization: Bearer $BOT_SECRET" | jq
 ```
@@ -117,6 +123,13 @@ npm test          # trigger rules, signatures, OpenAI request/answer handling
 npm run check     # types + tests
 npm run types     # after changing wrangler.jsonc
 ```
+
+## What reaches OpenAI
+
+The last 40 messages of the chat (12k characters at most) and any messages the request
+replies to. People without a WhatsApp name show as `person-xxxx`, `@<number>` mentions as
+`@<name>`, and messages deleted for everyone are left out. No phone numbers or JIDs go in
+the request labels.
 
 Unofficial client: WhatsApp can ban accounts that use one. OpenAI stores background responses
 for 30 days (`store: true` is required for background mode).
