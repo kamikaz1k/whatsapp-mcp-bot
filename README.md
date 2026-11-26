@@ -133,3 +133,7 @@ the request labels.
 
 Unofficial client: WhatsApp can ban accounts that use one. OpenAI stores background responses
 for 30 days (`store: true` is required for background mode).
+
+## License
+
+[MIT](LICENSE)
